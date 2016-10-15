@@ -1,16 +1,6 @@
-#include <iostream>
-#include <sstream>
-#include <unistd.h>
-#include <cstdlib>
-#include <istream>
-#include <fstream>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <cstdio>
-#include <thread>
-#include <cassert>
 #include <vector>
 #include <string>
+#include <array>
 
 class shell_listener
 {
@@ -22,11 +12,24 @@ public:
 
 	std::string get_cmd_prompt();
 
+	//initialize
 	void init();
+
+	//create a shell subprocess and setup pipes
+	void create_shell_process();
+
+	void run();
 
 private:	
 
+	static shell_listener* singleton = NULL;
+
+	std::vector<pid> pids;
 	std::vector<std_fd> fds;
+	//fd_set read_fd;
+	//fd_set write_fd;
+
+	static void read_and_write();
 
 	const char* get_env_value(const char* name);
 };
