@@ -12,6 +12,9 @@
 #include <cstdio>
 #include <thread>
 #include <cassert>
+#include <cstring>
+
+shell_listener* shell_listener::singleton = NULL;
 
 shell_listener::shell_listener() {
 	if (singleton) {
@@ -22,14 +25,15 @@ shell_listener::shell_listener() {
 }
 
 std::string shell_listener::get_cmd_prompt() {
-	const char* user = get_env_value("USER");
+	const char* user = cuserid(NULL);
 	char hostname[1024];
 	hostname[1023] = '\0';
 	gethostname(hostname, 1023);
 	char* cwd = get_current_dir_name(); // DYNAMIC MEMORY ALLOCATED
 
 	std::stringstream ss;
-	ss << '[' << user << '@' << hostname << ' ' << cwd << ']' << std::endl;
+	ss << '[' << user << '@' << hostname << ' ' << cwd << ']' << "$ ";
+	free(cwd);
 	return ss.str();
 }
 
@@ -74,38 +78,41 @@ size_t shell_listener::create_shell_process() {
 		kill(getppid(), SIGTERM);
 		abort();
 	} else {
-		char* stdout_buffer = NULL;
-		char* stderr_buffer = NULL;
-		size_t stderr_size = 0;
-		size_t stdout_size = 0;
-		size_t bytesread_stderr = 0;
-		size_t bytesread_stdout = 0;
-
 		close(stdin_pipe[0]);
 		close(stdout_pipe[1]);
 		close(stderr_pipe[1]);
 
-		fds.emplace_back(stdin_pipe[1], stderr_pipe[0], stdout_pipe[0]);
+		fds.push_back({{stdin_pipe[1], stderr_pipe[0], stdout_pipe[0]}});
 		pids.push_back(bash);
 	}
+
+	return index;
 }
 
 void shell_listener::run() {
 	std::string input;
-	while(std::getline(std::cin, input)) {
-		ssize_t bytes = write(fds[0][STDIN_FILENO], user_in.c_str(), user_in.size());
-        write(fds[0][STDIN_FILENO], "\n", 1);
+	std::string prompt;
+	while(1) {
+		prompt = get_cmd_prompt();
+		std::cout << prompt;
+		if (!std::getline(std::cin, input)) break;
+		//printf("reading\n");
+		//std::cout << input << std::endl;
+		ssize_t bytes = write(fds[0][0], input.c_str(), input.size());
+		//printf("%zd bytes written\n", bytes);
+        write(fds[0][0], "\n", 1);
 	}
 }
 
 const char* shell_listener::get_env_value(const char* name) {
 	char* result = secure_getenv(name);
 	if (!result) return result;
-	return std::strchr(result) + 1;
+	return std::strchr(result, '=') + 1;
 }
 
-static void shell_listener::read_and_write() {
-	int fd = singleton->fds[0][STDOUT_FILENO];
+void shell_listener::read_and_write() {
+	//printf("writing thread ready\n");
+	int fd = singleton->fds[0][2];
 
 	char* buffer = NULL;
 	size_t size = 0;
@@ -114,7 +121,8 @@ static void shell_listener::read_and_write() {
 
 	loop:
 	while (getline(&buffer, &size, fp) != -1) {
-		printf("%s", buffer);
+		std::cout << buffer;
 	}
 	goto loop;
+	free(buffer);	
 }
