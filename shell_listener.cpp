@@ -13,6 +13,9 @@
 #include <thread>
 #include <cassert>
 #include <cstring>
+#include <cerrno>
+#include <fcntl.h>
+#include <signal.h>
 
 shell_listener* shell_listener::singleton = NULL;
 
@@ -40,8 +43,8 @@ std::string shell_listener::get_cmd_prompt() {
 void shell_listener::init() {
 	// create pipes
 	create_shell_process();
-	std::thread reader(shell_listener::read_and_write);
-	reader.detach();
+	//std::thread reader(shell_listener::read_and_write);
+	//reader.detach();
 }
 
 size_t shell_listener::create_shell_process() {
@@ -82,6 +85,16 @@ size_t shell_listener::create_shell_process() {
 		close(stdout_pipe[1]);
 		close(stderr_pipe[1]);
 
+		errno = 0;
+		if (fcntl(stderr_pipe[0], F_SETFL, fcntl(stderr_pipe[0], F_GETFL) | O_NONBLOCK) == -1) {
+			perror("Call to fcntl failed.\n"); exit(1);
+		}
+
+		errno = 0;
+		if (fcntl(stdout_pipe[0], F_SETFL, fcntl(stdout_pipe[0], F_GETFL) | O_NONBLOCK) == -1) {
+			perror("Call to fcntl failed.\n"); exit(1);
+		}
+
 		fds.push_back({{stdin_pipe[1], stderr_pipe[0], stdout_pipe[0]}});
 		pids.push_back(bash);
 	}
@@ -92,6 +105,9 @@ size_t shell_listener::create_shell_process() {
 void shell_listener::run() {
 	std::string input;
 	std::string prompt;
+	pid_t pid = getpid();
+	signal(SIGRTMIN, shell_listener::read_and_write);
+
 	while(1) {
 		prompt = get_cmd_prompt();
 		std::cout << prompt;
@@ -101,6 +117,10 @@ void shell_listener::run() {
 		ssize_t bytes = write(fds[0][0], input.c_str(), input.size());
 		//printf("%zd bytes written\n", bytes);
         write(fds[0][0], "\n", 1);
+        std::string trigger("kill -SIGRTMIN $(ps -o ppid= $$) \n");
+        write(fds[0][0], trigger.c_str(), trigger.size());
+        pause();
+        //read_and_write();
 	}
 }
 
@@ -110,19 +130,40 @@ const char* shell_listener::get_env_value(const char* name) {
 	return std::strchr(result, '=') + 1;
 }
 
-void shell_listener::read_and_write() {
+void shell_listener::read_and_write(int signal) {
+	assert(signal == SIGRTMIN);
 	//printf("writing thread ready\n");
-	int fd = singleton->fds[0][2];
+	std_fd fd_arr = singleton->fds[0];
+	char buffer[BUFSIZ];
+	ssize_t result;
+	ssize_t bytesread = 0;
+	while (true) {
+		errno = 0;
+		result = read(fd_arr[1], buffer, BUFSIZ-1);
+		int read_err = errno;
 
-	char* buffer = NULL;
-	size_t size = 0;
-	FILE* fp = fdopen(fd, "r");
-	assert(fp);
+		if (result > 0) {
+			buffer[result] = '\0';
+			std::cout << buffer;
+		}
 
-	loop:
-	while (getline(&buffer, &size, fp) != -1) {
-		std::cout << buffer;
+		if (read_err == EAGAIN || read_err == EWOULDBLOCK) {
+			break;
+		}
 	}
-	goto loop;
-	free(buffer);	
+
+	while (true) {
+		errno = 0;
+		result = read(fd_arr[2], buffer, BUFSIZ-1);
+		int read_err = errno;
+
+		if (result > 0) {
+			buffer[result] = '\0';
+			std::cout << buffer;
+		}
+
+		if (read_err == EAGAIN || read_err == EWOULDBLOCK) {
+			break;
+		}
+	}	
 }
