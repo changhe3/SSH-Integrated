@@ -31,7 +31,8 @@ private:
 	fd_set read_fd;
 	//fd_set write_fd;
 
-	static void read_and_write();
+	static void read_stdout();
+	static void read_stderr();
 
 	const char* get_env_value(const char* name);
 };

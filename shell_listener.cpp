@@ -13,6 +13,8 @@
 #include <thread>
 #include <cassert>
 #include <cstring>
+#include <mutex>
+#include <csignal>
 
 shell_listener* shell_listener::singleton = NULL;
 
@@ -22,6 +24,18 @@ shell_listener::shell_listener() {
 	}
 	singleton = this;
 	init();
+}
+
+void sig_catch(int signal) {
+	assert(signal == SIGUSR1);
+}
+
+template <typename T>
+void println(T t) {
+	static std::mutex mtx;
+	mtx.lock();
+	std::cout << t;
+	mtx.unlock();
 }
 
 std::string shell_listener::get_cmd_prompt() {
@@ -40,8 +54,10 @@ std::string shell_listener::get_cmd_prompt() {
 void shell_listener::init() {
 	// create pipes
 	create_shell_process();
-	std::thread reader(shell_listener::read_and_write);
+	std::thread reader((shell_listener::read_stderr));
+	std::thread reader2((shell_listener::read_stdout));
 	reader.detach();
+	reader2.detach();
 }
 
 size_t shell_listener::create_shell_process() {
@@ -92,15 +108,17 @@ size_t shell_listener::create_shell_process() {
 void shell_listener::run() {
 	std::string input;
 	std::string prompt;
+	signal(SIGUSR1, sig_catch);
+
 	while(1) {
 		prompt = get_cmd_prompt();
 		std::cout << prompt;
 		if (!std::getline(std::cin, input)) break;
-		//printf("reading\n");
-		//std::cout << input << std::endl;
 		ssize_t bytes = write(fds[0][0], input.c_str(), input.size());
-		//printf("%zd bytes written\n", bytes);
         write(fds[0][0], "\n", 1);
+        std::string trigger("kill -SIGUSR1 $(ps -o ppid= $$) \n");
+        write(fds[0][0], trigger.c_str(), trigger.size());
+        pause();
 	}
 }
 
@@ -110,7 +128,7 @@ const char* shell_listener::get_env_value(const char* name) {
 	return std::strchr(result, '=') + 1;
 }
 
-void shell_listener::read_and_write() {
+void shell_listener::read_stdout() {
 	//printf("writing thread ready\n");
 	int fd = singleton->fds[0][2];
 
@@ -121,7 +139,24 @@ void shell_listener::read_and_write() {
 
 	loop:
 	while (getline(&buffer, &size, fp) != -1) {
-		std::cout << buffer;
+		println(buffer);
+	}
+	goto loop;
+	free(buffer);	
+}
+
+void shell_listener::read_stderr() {
+	//printf("writing thread ready\n");
+	int fd = singleton->fds[0][1];
+
+	char* buffer = NULL;
+	size_t size = 0;
+	FILE* fp = fdopen(fd, "r");
+	assert(fp);
+
+	loop:
+	while (getline(&buffer, &size, fp) != -1) {
+		println(buffer);
 	}
 	goto loop;
 	free(buffer);	
