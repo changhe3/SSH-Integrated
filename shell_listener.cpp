@@ -15,8 +15,10 @@
 #include <cstring>
 #include <mutex>
 #include <csignal>
+#include <pty.h>
 
 shell_listener* shell_listener::singleton = NULL;
+int master;
 
 shell_listener::shell_listener() {
 	if (singleton) {
@@ -54,55 +56,20 @@ std::string shell_listener::get_cmd_prompt() {
 void shell_listener::init() {
 	// create pipes
 	create_shell_process();
-	std::thread reader((shell_listener::read_stderr));
+	//std::thread reader((shell_listener::read_stderr));
 	std::thread reader2((shell_listener::read_stdout));
-	reader.detach();
+	//reader.detach();
 	reader2.detach();
 }
 
 size_t shell_listener::create_shell_process() {
-	size_t index = fds.size();
+	char* args[] = {"/bin/bash", "-i", NULL};
+	struct winsize w;
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+	int pid = forkpty(&master, NULL, NULL, &w);
+	if (pid == 0) execve(args[0], args, NULL);
 
-	int stderr_pipe[2];
-	int stdout_pipe[2];
-	int stdin_pipe[2];
-
-	pipe(stderr_pipe);
-	pipe(stdout_pipe);
-	pipe(stdin_pipe);
-
-	pid_t bash = fork();
-	if (bash == -1) {
-		perror("fork failed");
-		abort();
-	} else if (bash == 0) {
-		close(stdin_pipe[1]);
-		close(STDIN_FILENO);
-		dup2(stdin_pipe[0], STDIN_FILENO);
-
-		close(stdout_pipe[0]);
-		close(STDOUT_FILENO);
-		dup2(stdout_pipe[1], STDOUT_FILENO);
-
-		close(stderr_pipe[0]);
-		close(STDERR_FILENO);
-		dup2(stderr_pipe[1], STDERR_FILENO);
-
-		//printf("starting shell\n");
-		execlp("bash", "bash", NULL);
-		perror("exec failed");
-		kill(getppid(), SIGTERM);
-		abort();
-	} else {
-		close(stdin_pipe[0]);
-		close(stdout_pipe[1]);
-		close(stderr_pipe[1]);
-
-		fds.push_back({{stdin_pipe[1], stderr_pipe[0], stdout_pipe[0]}});
-		pids.push_back(bash);
-	}
-
-	return index;
+	return 0;
 }
 
 void shell_listener::run() {
@@ -111,14 +78,14 @@ void shell_listener::run() {
 	signal(SIGUSR1, sig_catch);
 
 	while(1) {
-		prompt = get_cmd_prompt();
-		std::cout << prompt;
+		//prompt = get_cmd_prompt();
+		//std::cout << prompt;
 		if (!std::getline(std::cin, input)) break;
-		ssize_t bytes = write(fds[0][0], input.c_str(), input.size());
-        write(fds[0][0], "\n", 1);
-        std::string trigger("kill -SIGUSR1 $(ps -o ppid= $$) \n");
-        write(fds[0][0], trigger.c_str(), trigger.size());
-        pause();
+		ssize_t bytes = write(master, input.c_str(), input.size());
+        write(master, "\n", 1);
+        //std::string trigger("kill -SIGUSR1 $(ps -o ppid= $$) \n");
+        //write(master, trigger.c_str(), trigger.size());
+        //pause();
 	}
 }
 
@@ -130,7 +97,7 @@ const char* shell_listener::get_env_value(const char* name) {
 
 void shell_listener::read_stdout() {
 	//printf("writing thread ready\n");
-	int fd = singleton->fds[0][2];
+	int fd = master;
 
 	char* buffer = NULL;
 	size_t size = 0;
