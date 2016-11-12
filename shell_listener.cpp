@@ -1,12 +1,10 @@
 #include "shell_listener.h"
 #include <sys/types.h>
-#include <signal.h>
+#include <csignal>
 #include <iostream>
 #include <sstream>
 #include <unistd.h>
 #include <cstdlib>
-#include <istream>
-#include <fstream>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <cstdio>
@@ -14,11 +12,24 @@
 #include <cassert>
 #include <cstring>
 #include <mutex>
-#include <csignal>
-#include <pty.h>
+#include <stropts.h>
+#include <sys/ioctl.h>
+
+extern "C" 
+{
+	#include <rote/rote.h>
+	#include <ncurses.h>
+}
+
 
 shell_listener* shell_listener::singleton = NULL;
-int master;
+
+RoteTerm* rt;
+char buf[BUFSIZ];
+int screen_w, screen_h;
+
+static unsigned char getout = 0;
+void sigchld(int signo) { getout = 1; }
 
 shell_listener::shell_listener() {
 	if (singleton) {
@@ -28,103 +39,37 @@ shell_listener::shell_listener() {
 	init();
 }
 
-void sig_catch(int signal) {
-	assert(signal == SIGUSR1);
-}
-
-template <typename T>
-void println(T t) {
-	static std::mutex mtx;
-	mtx.lock();
-	std::cout << t;
-	mtx.unlock();
-}
-
-std::string shell_listener::get_cmd_prompt() {
-	const char* user = cuserid(NULL);
-	char hostname[1024];
-	hostname[1023] = '\0';
-	gethostname(hostname, 1023);
-	char* cwd = get_current_dir_name(); // DYNAMIC MEMORY ALLOCATED
-
-	std::stringstream ss;
-	ss << '[' << user << '@' << hostname << ' ' << cwd << ']' << "$ ";
-	free(cwd);
-	return ss.str();
-}
-
 void shell_listener::init() {
-	// create pipes
-	create_shell_process();
-	//std::thread reader((shell_listener::read_stderr));
-	std::thread reader2((shell_listener::read_stdout));
-	//reader.detach();
-	reader2.detach();
-}
+	signal(SIGCHLD, sigchld);
+	initscr();
+    noecho();
+    start_color();
+    raw();
+    nodelay(stdscr, TRUE);
+    keypad(stdscr, TRUE);
+    getmaxyx(stdscr, screen_h, screen_w);
+    
+    mvwprintw(stdscr, 0, 27, " SSH Integrated ");
+    wrefresh(stdscr);
 
-size_t shell_listener::create_shell_process() {
-	char* args[] = {"/bin/bash", "-i", NULL};
-	struct winsize w;
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-	int pid = forkpty(&master, NULL, NULL, &w);
-	if (pid == 0) execve(args[0], args, NULL);
+	rt = rote_vt_create(screen_h - 1, screen_w);
+	rote_vt_forkpty(rt, "/bin/bash --login");
 
-	return 0;
 }
 
 void shell_listener::run() {
-	std::string input;
-	std::string prompt;
-	signal(SIGUSR1, sig_catch);
+	int ch = 0;
+	while (!getout) {
+		rote_vt_draw(rt, stdscr, 1, 1, NULL);
+		wrefresh(stdscr);
 
-	while(1) {
-		//prompt = get_cmd_prompt();
-		//std::cout << prompt;
-		if (!std::getline(std::cin, input)) break;
-		ssize_t bytes = write(master, input.c_str(), input.size());
-        write(master, "\n", 1);
-        //std::string trigger("kill -SIGUSR1 $(ps -o ppid= $$) \n");
-        //write(master, trigger.c_str(), trigger.size());
-        //pause();
+		ch = getch();
+		if (ch != ERR) {
+			rote_vt_keypress(rt, ch);
+		}
+		rote_vt_update(rt);
 	}
+	endwin();
+
 }
 
-const char* shell_listener::get_env_value(const char* name) {
-	char* result = secure_getenv(name);
-	if (!result) return result;
-	return std::strchr(result, '=') + 1;
-}
-
-void shell_listener::read_stdout() {
-	//printf("writing thread ready\n");
-	int fd = master;
-
-	char* buffer = NULL;
-	size_t size = 0;
-	FILE* fp = fdopen(fd, "r");
-	assert(fp);
-
-	loop:
-	while (getline(&buffer, &size, fp) != -1) {
-		println(buffer);
-	}
-	goto loop;
-	free(buffer);	
-}
-
-void shell_listener::read_stderr() {
-	//printf("writing thread ready\n");
-	int fd = singleton->fds[0][1];
-
-	char* buffer = NULL;
-	size_t size = 0;
-	FILE* fp = fdopen(fd, "r");
-	assert(fp);
-
-	loop:
-	while (getline(&buffer, &size, fp) != -1) {
-		println(buffer);
-	}
-	goto loop;
-	free(buffer);	
-}
