@@ -26,7 +26,8 @@ shell_listener* shell_listener::singleton = NULL;
 
 RoteTerm* rt;
 char buf[BUFSIZ];
-int screen_w, screen_h;
+size_t size = 0;
+int screen_w, screen_h, i, j;
 
 static unsigned char getout = 0;
 void sigchld(int signo) { getout = 1; }
@@ -48,6 +49,10 @@ void shell_listener::init() {
     nodelay(stdscr, TRUE);
     keypad(stdscr, TRUE);
     getmaxyx(stdscr, screen_h, screen_w);
+
+    for (i = 0; i < 8; i++) for (j = 0; j < 8; j++)
+      if (i != 7 || j != 0)
+         init_pair(j*8+7-i, i, j);
     
     mvwprintw(stdscr, 0, 27, " SSH Integrated ");
     wrefresh(stdscr);
@@ -60,14 +65,13 @@ void shell_listener::init() {
 void shell_listener::run() {
 	int ch = 0;
 	while (!getout) {
+		usleep(20);
 		rote_vt_draw(rt, stdscr, 1, 1, NULL);
 		wrefresh(stdscr);
 
 		ch = getch();
-		if (ch != ERR) {
-			rote_vt_keypress(rt, ch);
-		}
-		rote_vt_update(rt);
+		if (ch != ERR) rote_vt_keypress(rt, ch);
+
 	}
 	endwin();
 
