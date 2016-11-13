@@ -57,20 +57,20 @@ void shell_listener::init() {
     mvwprintw(stdscr, 0, 27, " SSH Integrated ");
     wrefresh(stdscr);
 
-	rt = rote_vt_create(screen_h - 1, screen_w);
-	rote_vt_forkpty(rt, "/bin/bash --login");
+    rt = rote_vt_create(screen_h - 2, screen_w);
+  	rote_vt_forkpty(rt, "/bin/bash --login");
 
 }
 
 void shell_listener::run() {
 	int ch = 0;
 	while (!getout) {
-		usleep(20);
 		rote_vt_draw(rt, stdscr, 1, 1, NULL);
 		wrefresh(stdscr);
 
 		ch = getch();
 		if (ch != ERR) rote_vt_keypress(rt, ch);
+		//rote_vt_update(rt);
 
 	}
 	endwin();
