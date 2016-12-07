@@ -1,0 +1,19 @@
+{
+	"profiles": [
+		{
+			"remark":"CS241 VM",
+			"user":"localadmin",
+			"server":"fa16-cs241-358.cs.illinois.edu",
+			"password":"hechang1997",
+			"directory":"/home/localadmin/cs241"
+		},
+
+		{
+			"remark":"CS241 VM2",
+			"user":"localadmin",
+			"server":"fa16-cs241-358.cs.illinois.edu",
+			"password":"hechang1997",
+			"directory":"/home/localadmin/Documents"
+		}
+	]
+}

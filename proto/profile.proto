@@ -1,0 +1,13 @@
+syntax = "proto3";
+//option optimize_for = LITE_RUNTIME;
+
+package ssh_profile;
+
+message profile {
+	string host = 1;
+	string user = 2;
+	int32 port = 3;
+	string password = 4;
+
+	string path = 16;
+}

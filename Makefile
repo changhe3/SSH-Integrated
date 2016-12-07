@@ -1,6 +1,6 @@
 CC = clang++
 CFLAGS  = -g -Wall -std=c++1z 
-LDFLAGS = -lrote -lncurses 
+LDFLAGS = -lrote -lncurses -lmenu -lpanel
 
 all: main
 
