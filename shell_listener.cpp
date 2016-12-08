@@ -54,6 +54,36 @@ shell_listener::shell_listener() : terminals(5, NULL), num_profiles(0) {
 	init();
 }
 
+
+void shell_listener::download(int index) {
+	profile_info& info = profiles[choices[index]];
+	char* cmd = NULL;
+	struct stat st = {0};
+
+	asprintf(&cmd, "/tmp/%s", info.remark.c_str());
+	if (stat("/tmp/%s", &st) == -1) {
+	    mkdir("/tmp/%s", 0700);
+	}
+	cmd = NULL;
+	asprintf(&cmd, "sshpass -p \'%s\' scp -r %s@%s:%s/. /tmp/%s\n", info.password.c_str(), info.user.c_str(), info.server.c_str(), info.directory.c_str(), info.remark.c_str());
+	//system(cmd);
+	rote_vt_write(rts[0], cmd, strlen(cmd));
+	free(cmd);
+	cmd = NULL;
+	asprintf(&cmd, "cd /tmp/%s\n", info.remark.c_str());
+	rote_vt_write(rts[0], cmd, strlen(cmd));
+	free(cmd);
+}
+
+void shell_listener::upload(int index) {
+	profile_info& info = profiles[choices[index]];
+	char* cmd = NULL;
+	asprintf(&cmd, "sshpass -p \'%s\' scp -r /tmp/%s/. %s@%s:%s\n", info.password.c_str(), info.remark.c_str(), info.user.c_str(), info.server.c_str(), info.directory.c_str());
+	//system(cmd);
+	rote_vt_write(rts[0], cmd, strlen(cmd));
+	free(cmd);
+}
+
 void shell_listener::create_profiles(const char* filename) {
 	FILE* fp = fopen(filename, "a+");
 	fseek(fp, 0, SEEK_END);
@@ -201,7 +231,9 @@ void shell_listener::run() {
 				active_panel_idx = index;
 				control = panel_window(terminals[active_panel_idx]);
 			}
-		} else if (ch != ERR) rote_vt_keypress(rts[active_panel_idx], ch);
+		} else if (ch == KEY_F(2) && control != menuwin && control != termwin) download(active_panel_idx);
+		else if (ch == KEY_F(3) && control != menuwin && control != termwin) upload(active_panel_idx);
+		else if (ch != ERR) rote_vt_keypress(rts[active_panel_idx], ch);
 		//rote_vt_update(rt);
 
 	}
@@ -247,7 +279,6 @@ void destroy_win(WINDOW *local_win)
 	wrefresh(local_win);
 	delwin(local_win);
 }
-
 
 // int verify_knownhost(ssh_session session) {
 //   int state;

@@ -38,6 +38,9 @@ public:
 
 	WINDOW* populate_panel(int index, int height, int width, int starty, int startx);
 
+	void download(int index);
+	void upload(int index);	
+
 private:	
 
 	static shell_listener* singleton;
